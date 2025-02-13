@@ -1,0 +1,47 @@
+{
+    "users": [
+        {
+            "id": "1840233118",
+            "first_name": "Artem",
+            "username": "ArtemKirss",
+            "join_date": "17:01; 09/01/2025",
+            "rating": 5,
+            "mute": false,
+            "mute_end": "None",
+            "reason": null
+        },
+        {
+            "id": "5708855619",
+            "first_name": "Dmitry",
+            "username": "Kirsanov_Dmitrij",
+            "join_date": "11:18; 13/01/2025",
+            "rating": 5,
+            "mute": true,
+            "mute_end": "10:13; 31/01/2025",
+            "reason": "По рішенню адміністратора"
+        },
+        {
+            "id": "1013802830",
+            "first_name": "Р“Р»РµР±",
+            "username": "RavaNay",
+            "join_date": "19:50; 18/01/2025",
+            "rating": 5,
+            "mute": false,
+            "mute_end": "None",
+            "reason": null
+        }
+    ],
+    "muted_users": {
+        "Kirsanov_Dmitrij": true
+    },
+    "admins": [],
+    "programmers": [
+        "ArtemKirss"
+    ],
+    "bot_token": "7677888606:AAE-Huoy7cYW7FLSYI2Gl6RdC-XB8xtD96A",
+    "owner_id": "1840233118",
+    "chat_id": "-1002340443739",
+    "total_score": 15.0,
+    "num_of_ratings": 3,
+    "sent_messages": {}
+}

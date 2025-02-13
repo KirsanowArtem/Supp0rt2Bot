@@ -15,7 +15,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKe
     BotCommand, BotCommandScopeDefault, BotCommandScopeChat, Bot
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, CallbackContext, ContextTypes
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import hashlib
 
 from aiocron import crontab
@@ -54,111 +54,54 @@ VALID_USERNAME = "Skeleton"
 VALID_PASSWORD_HASH = hashlib.sha256("12".encode()).hexdigest()
 
 
-def load_data(file_path):
-    """Загружает данные из data.json."""
-    if file_path is None:
-        file_path = DATA_FILE
-    with open(file_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def load_stats():
+    """Загружает статистику из data.json."""
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    users_count = len(data["users"])
+    average_rating = round(data["total_score"] / data["num_of_ratings"], 2) if data["num_of_ratings"] > 0 else 0
+
+    return {
+        "users_count": users_count,
+        "average_rating": average_rating
+    }
 
 
-
-def load_users():
-    """Загружает пользователей и формирует список с доп. инфо."""
-    data = load_data(DATA_FILE)  # Теперь точно передается путь к файлу
-    users = []
-    for user in data["users"]:
-        username = user.get("username", "")
-        avatar_url = f"https://t.me/i/userpic/320/{username}.jpg" if username else "https://via.placeholder.com/50"
-
-        mute_status = user.get("mute", False)
-        mute_end_date = user.get("mute_end", "None")
-
-        # Определяем статус мута
-        if mute_status and mute_end_date != "None":
-            status = f"🔴 В муте (до {mute_end_date})"
-        else:
-            status = "🟢 Размучен"
-
-        users.append({
-            "id": user["id"],
-            "first_name": user["first_name"],
-            "username": username,
-            "avatar": avatar_url,
-            "status": status,
-            "rating": user.get("rating", 0)
-        })
-    return users
-
-
-def get_statistics():
-    """Возвращает количество пользователей и среднюю оценку."""
-    data = load_data(DATA_FILE)
-    total_users = len(data["users"])
-    total_score = data.get("total_score", 0)
-    num_ratings = data.get("num_of_ratings", 1)
-    avg_rating = round(total_score / num_ratings, 1) if num_ratings > 0 else 0
-    return total_users, avg_rating
-
-
-@app.route("/", methods=["GET", "POST"])
-def index():
+@app.route("/home", methods=["GET", "POST"])
+def home():
     """Главная страница с авторизацией."""
-    if not session.get("logged_in"):
-        return redirect(url_for("login"))
-
-    users = load_users()
-    total_users, avg_rating = get_statistics()
-    return render_template("main.html", users=users, total_users=total_users, avg_rating=avg_rating)
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    """Страница входа."""
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
 
         if username == VALID_USERNAME and hashed_password == VALID_PASSWORD_HASH:
-            session["logged_in"] = True
-            return redirect(url_for("index"))
+            session["logged_in"] = True  # Запоминаем, что вошли
+        else:
+            return render_template("index.html", error="Неверный логин или пароль", stats=None)
 
-    return render_template("login.html")
+    if not session.get("logged_in"):
+        return render_template("index.html", stats=None)  # Показываем форму входа
+
+    stats = load_stats()
+    return render_template("index.html", stats=stats)
 
 
-@app.route("/logout", methods=["POST"])
+@app.route("/stats")
+def get_stats():
+    """API для обновления статистики (доступно только после входа)."""
+    if not session.get("logged_in"):
+        return jsonify({"error": "Unauthorized"}), 401  # Ошибка 401, если не авторизован
+
+    return jsonify(load_stats())
+
+
+@app.route("/logout")
 def logout():
     """Выход из аккаунта."""
     session.pop("logged_in", None)
-    return redirect(url_for("login"))
-
-
-@app.route("/update_name", methods=["POST"])
-def update_name():
-    """Обновляет имя пользователя (не влияет на бота)."""
-    user_id = request.form.get("user_id")
-    new_name = request.form.get("new_name")
-
-    if not user_id or not new_name:
-        return redirect(url_for("index"))
-
-    data = load_data(DATA_FILE)
-    for user in data["users"]:
-        if str(user["id"]) == user_id:
-            user["first_name"] = new_name
-            break
-
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
-    return redirect(url_for("index"))
-
-
-
-
-
-
+    return render_template("index.html", stats=None)  # Показываем форму входа
 
 
 def run_flask():
@@ -194,6 +137,27 @@ def get_current_time_kiev():
 def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
+
+def load_data(file_path):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {
+            "users": [],
+            "admins": [],
+            "programmers": [],
+            "bot_token": "",
+            "owner_id": "",
+            "chat_id": "",
+            "total_score": 0.0,
+            "num_of_ratings": 0,
+            "sent_messages": {},
+            "muted_users": {}
+        }
+    except json.JSONDecodeError:
+        print("Помилка: некорректний формат JSON.")
+        return {}
 
 def load_sent_messages():
     with open(DATA_FILE, "r", encoding="utf-8") as file:
