@@ -1,6 +1,7 @@
 import asyncio
 import re
 
+import aiohttp
 import config
 import nest_asyncio
 import os
@@ -8,6 +9,8 @@ import pytz
 import threading
 import json
 import pandas as pd
+import requests
+
 import telegram.error
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -36,7 +39,6 @@ global muted_users
 
 scheduler = BackgroundScheduler(timezone="Europe/Kiev")
 
-DATA_FILE = "../Supp0rt2Bot/data.json"
 EXCEL_FILE = "user_data_export.xlsx"
 
 application = None
@@ -50,18 +52,14 @@ app = Flask(__name__)
 app.secret_key = "supersecretkey"  # Ключ для сессий
 
 DATA_FILE = "data.json"
+CHATS_FILE = "chats.json"
+
+SITE_URL = "http://127.0.0.1:5000"
+
 
 # Хешируем пароль "12" через SHA256
 VALID_USERNAME = "Skeleton"
 VALID_PASSWORD_HASH = hashlib.sha256("12".encode()).hexdigest()
-
-
-def load_data(file_path):
-    """Загружает данные из data.json."""
-    if file_path is None:
-        file_path = DATA_FILE
-    with open(file_path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 
@@ -104,17 +102,74 @@ def get_statistics():
     return total_users, avg_rating
 
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    if not session.get("logged_in"):
-        return redirect(url_for("login"))
+def load_data(filename):
+    with open(filename, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-    users = load_users()
-    total_users, avg_rating = get_statistics()
+def load_chats():
+    try:
+        with open(CHATS_FILE, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return {}
+
+# Функция для сохранения чатов в файл
+def save_chats(chats):
+    with open(CHATS_FILE, "w", encoding="utf-8") as file:
+        json.dump(chats, file, ensure_ascii=False, indent=4)
+
+
+@app.route('/get_chat_messages')
+def get_chat_messages():
+    user_id = request.args.get('userId')
+
+    try:
+        with open(CHATS_FILE, 'r') as file:
+            chats = json.load(file)
+
+        if str(user_id) in chats:
+            user_data = chats[str(user_id)]
+            print("Данные для пользователя:", json.dumps(user_data, indent=4))  # Выводим данные в консоль
+            return jsonify(user_data['messages'])
+        else:
+            return jsonify({"error": "User not found"}), 404
+    except Exception as e:
+        print("Ошибка при чтении данных:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/')
+def index():
+    data = load_data(DATA_FILE)
+    users = data['users']
+    total_users = len(users)
+    avg_rating = sum(user['rating'] for user in users) / total_users if total_users > 0 else 0
     return render_template("main.html", users=users, total_users=total_users, avg_rating=avg_rating)
 
 
+@app.route('/update_name', methods=['POST'])
+def update_name():
+    data = request.get_json()
+    user_id = data['userId']
+    new_name = data['newName']
 
+    # Загружаем данные пользователей
+    users_data = load_data(DATA_FILE)
+    users = users_data['users']
+
+    # Ищем пользователя по ID и меняем имя
+    user_found = False
+    for user in users:
+        if str(user['id']) == str(user_id):
+            user['second_name'] = new_name
+            user_found = True
+            break
+
+    if user_found:
+        save_data(users_data)  # Сохраняем данные
+        return jsonify({'success': True, 'new_name': new_name})
+    else:
+        return jsonify({'success': False})
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -139,28 +194,17 @@ def logout():
     return redirect(url_for("login"))
 
 
-@app.route("/edit_name/<user_id>/<new_name>", methods=["POST"])
-def edit_name(user_id, new_name):
-    # Загрузка данных
-    data = load_data(DATA_FILE)
-    user_found = False
+@app.route('/update_chat', methods=['POST'])
+def update_chat():
+    data = request.json  # Получаем JSON
+    if not data:
+        return jsonify({"error": "No data received"}), 400
 
-    for user in data["users"]:
-        if user["id"] == user_id:
-            user["second_name"] = new_name  # Изменяем second_name
-            user_found = True
-            break
+    print("📩 Новое сообщение:", data)
 
-    if not user_found:
-        return jsonify({"success": False, "message": "Пользователь не найден."})
+    # ТУТ добавь код обновления страницы на твоем сайте (например, с WebSocket)
 
-    # Сохраняем измененные данные обратно в файл
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-    return jsonify({"success": True})
-
-
+    return jsonify({"status": "ok"}), 200
 
 
 
@@ -302,6 +346,17 @@ async def start(update: Update, context):
         config["users"].append(new_user)
         save_data(config)
 
+    # Загружаем данные чатов
+    chats_data = load_chats()
+
+    # Если пользователя нет в чате, добавляем его
+    if str(user.id) not in chats_data:
+        chats_data[str(user.id)] = {
+            "username": user.username or "Не вказано",
+            "messages": []  # Список сообщений для этого пользователя
+        }
+        save_chats(chats_data)
+
     keyboard = [
         ["/start", "/rate"],
         ["/message", "/stopmessage"],
@@ -311,7 +366,7 @@ async def start(update: Update, context):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     await update.message.reply_text(
-        "78Привіт! Я ваш бот підтримки. Введіть команду /rate для оінки бота, /message для написания адміністраторам бота або /help для отримання інформації про команди.",
+        "Привіт! Я ваш бот підтримки. Введіть команду /rate для оцінки бота, /message для написання адміністраторам бота або /help для отримання інформації про команди.",
         reply_markup=reply_markup
     )
 
@@ -520,7 +575,18 @@ async def info(update: Update, context: CallbackContext):
     await update.message.reply_text(f"Программісти:\n{programmer_list}\n\nАдміністратори:\n{admin_list}")
 
 
+async def update_website(message_info):
+    url = "http://127.0.0.1:5000/update_chat"  # Отправляем локально
+    headers = {"Content-Type": "application/json"}
 
+    try:
+        response = requests.post(url, json=message_info, headers=headers)
+        if response.status_code == 200:
+            print("✅ Данные успешно отправлены на сайт")
+        else:
+            print(f"❌ Ошибка {response.status_code}: {response.text}")
+    except Exception as e:
+        print(f"Ошибка при отправке данных на сайт: {e}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent_messages = load_sent_messages()
@@ -619,49 +685,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_name = update.effective_user.first_name
             user_username = update.effective_user.username if update.effective_user.username else "немає імені користувача"
             current_time = get_current_time_kiev()
-            user_message = ""
-            first_message = f'Повідомлення від **{user_name}**; ```@{user_username}``` ```{user_id}``` \n{current_time}:'
+            user_message = update.message.text if update.message.text else ""
 
-            if update.message.text:
-                user_message = update.message.text
+            first_message = f'Повідомлення від **{user_name}**; ```@{user_username}``` \n{current_time}:'
+            if user_message:
                 first_message += f'\n{user_message}'
 
-            message_to_admin = await context.bot.send_message(chat_id=CREATOR_CHAT_ID, text=first_message, parse_mode="MarkdownV2")
-            sent_messages[message_to_admin.message_id] = update.effective_user.id
+            # Загружаем данные чатов из chats.json
+            chats_data = load_chats()
+            chat_id_str = str(update.message.chat.id)
 
-            if update.message.photo:
-                photo_file_id = update.message.photo[-1].file_id
-                caption = update.message.caption if update.message.caption else ''
-                await context.bot.send_photo(chat_id=CREATOR_CHAT_ID, photo=photo_file_id, caption=caption, reply_to_message_id=message_to_admin.message_id)
+            # Проверяем, существует ли чат, если нет — создаем
+            if chat_id_str not in chats_data or not isinstance(chats_data[chat_id_str], dict):
+                print(f"Ошибка: данные для чата {chat_id_str} повреждены, исправляем.")
+                chats_data[chat_id_str] = {"username": user_username, "messages": []}
 
-            elif update.message.document:
-                document_file_id = update.message.document.file_id
-                caption = update.message.caption if update.message.caption else ''
-                await context.bot.send_document(chat_id=CREATOR_CHAT_ID, document=document_file_id, caption=caption, reply_to_message_id=message_to_admin.message_id)
-            elif update.message.sticker:
-                sticker_file_id = update.message.sticker.file_id
-                caption = update.message.caption if update.message.caption else ''
-                await context.bot.send_sticker(chat_id=CREATOR_CHAT_ID, sticker=sticker_file_id, reply_to_message_id=message_to_admin.message_id)
-            elif update.message.voice:
-                voice_file_id = update.message.voice.file_id
-                caption = update.message.caption if update.message.caption else ''
-                await context.bot.send_voice(chat_id=CREATOR_CHAT_ID, voice=voice_file_id, caption=caption, reply_to_message_id=message_to_admin.message_id)
-            elif update.message.video:
-                video_file_id = update.message.video.file_id
-                caption = update.message.caption if update.message.caption else ''
-                await context.bot.send_video(chat_id=CREATOR_CHAT_ID, video=video_file_id, caption=caption, reply_to_message_id=message_to_admin.message_id)
-            elif update.message.video_note:
-                video_note_file_id = update.message.video_note.file_id
-                caption = update.message.caption if update.message.caption else ''
-                await context.bot.send_video_note(chat_id=CREATOR_CHAT_ID, video_note=video_note_file_id, reply_to_message_id=message_to_admin.message_id)
+            # Проверяем, что "messages" существует и это список
+            if "messages" not in chats_data[chat_id_str] or not isinstance(chats_data[chat_id_str]["messages"], list):
+                print(f"Ошибка: messages в чате {chat_id_str} повреждены, исправляем.")
+                chats_data[chat_id_str]["messages"] = []
 
+            # Сохраняем информацию о сообщении (без user_id)
+            message_info = {
+                "username": user_username,
+                "message": user_message,
+                "time_sent": current_time
+            }
+
+            # Добавляем сообщение в список
+            chats_data[chat_id_str]["messages"].append(message_info)
+
+            # Сохраняем обновленные данные в chats.json
+            save_chats(chats_data)
+
+            # Обновление информации на сайте
+            await update_website(message_info)  # Тут будет исправленный запрос (см. ниже)
+
+            # Ответ пользователю
             reply = await update.message.reply_text("Ваше повідомлення надіслано адміністраторам бота.")
             await asyncio.create_task(
                 auto_delete_message(context.bot, chat_id=reply.chat.id, message_id=reply.message_id, delay=5))
-            sent_messages[update.message.message_id] = update.message.from_user.id
-            save_sent_messages(sent_messages)
-        else:
-            await update.message.reply_text("Введіть /message, щоб надсилати повідомлення адміністраторам бота.")
+
     else:
         if update.effective_user.id != context.bot.id:
             if update.message.reply_to_message:
