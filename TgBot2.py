@@ -15,7 +15,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKe
     BotCommand, BotCommandScopeDefault, BotCommandScopeChat, Bot
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, CallbackContext, ContextTypes
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 import hashlib
 
 from aiocron import crontab
@@ -26,6 +26,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 
 from telegram.ext import Application
+
+from gevent import monkey
 
 nest_asyncio.apply()
 
@@ -54,59 +56,122 @@ VALID_USERNAME = "Skeleton"
 VALID_PASSWORD_HASH = hashlib.sha256("12".encode()).hexdigest()
 
 
-def load_stats():
-    """Загружает статистику из data.json."""
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    users_count = len(data["users"])
-    average_rating = round(data["total_score"] / data["num_of_ratings"], 2) if data["num_of_ratings"] > 0 else 0
-
-    return {
-        "users_count": users_count,
-        "average_rating": average_rating
-    }
+def load_data(file_path):
+    """Загружает данные из data.json."""
+    if file_path is None:
+        file_path = DATA_FILE
+    with open(file_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-@app.route("/home", methods=["GET", "POST"])
-def home():
-    """Главная страница с авторизацией."""
+
+def load_users(file_path=DATA_FILE):
+    """Загружает пользователей и формирует список с доп. инфо."""
+    data = load_data(file_path)
+    users = []
+    for user in data["users"]:
+        username = user.get("username", "")
+        avatar_url = f"https://t.me/i/userpic/320/{username}.jpg" if username else "https://via.placeholder.com/50"
+
+        mute_status = user.get("mute", False)
+        mute_end_date = user.get("mute_end", "None")
+
+        # Определяем статус мута
+        if mute_status and mute_end_date != "None":
+            status = f"🔴 В муте (до {mute_end_date})"
+        else:
+            status = "🟢 Размучен"
+
+        users.append({
+            "id": user["id"],
+            "second_name": user["second_name"],  # Используем second_name
+            "username": username,
+            "avatar": avatar_url,
+            "status": status,
+            "rating": user.get("rating", 0),
+            "mute_end": mute_end_date
+        })
+    return users
+
+
+def get_statistics():
+    """Возвращает количество пользователей и среднюю оценку."""
+    data = load_data(DATA_FILE)
+    total_users = len(data["users"])
+    total_score = data.get("total_score", 0)
+    num_ratings = data.get("num_of_ratings", 1)
+    avg_rating = round(total_score / num_ratings, 1) if num_ratings > 0 else 0
+    return total_users, avg_rating
+
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+
+    users = load_users()
+    total_users, avg_rating = get_statistics()
+    return render_template("main.html", users=users, total_users=total_users, avg_rating=avg_rating)
+
+
+
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Страница входа."""
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
 
         if username == VALID_USERNAME and hashed_password == VALID_PASSWORD_HASH:
-            session["logged_in"] = True  # Запоминаем, что вошли
-        else:
-            return render_template("index.html", error="Неверный логин или пароль", stats=None)
+            session["logged_in"] = True
+            return redirect(url_for("index"))
 
-    if not session.get("logged_in"):
-        return render_template("index.html", stats=None)  # Показываем форму входа
-
-    stats = load_stats()
-    return render_template("index.html", stats=stats)
+    return render_template("login.html")
 
 
-@app.route("/stats")
-def get_stats():
-    """API для обновления статистики (доступно только после входа)."""
-    if not session.get("logged_in"):
-        return jsonify({"error": "Unauthorized"}), 401  # Ошибка 401, если не авторизован
-
-    return jsonify(load_stats())
-
-
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
     """Выход из аккаунта."""
     session.pop("logged_in", None)
-    return render_template("index.html", stats=None)  # Показываем форму входа
+    return redirect(url_for("login"))
+
+
+@app.route("/edit_name/<user_id>/<new_name>", methods=["POST"])
+def edit_name(user_id, new_name):
+    # Загрузка данных
+    data = load_data(DATA_FILE)
+    user_found = False
+
+    for user in data["users"]:
+        if user["id"] == user_id:
+            user["second_name"] = new_name  # Изменяем second_name
+            user_found = True
+            break
+
+    if not user_found:
+        return jsonify({"success": False, "message": "Пользователь не найден."})
+
+    # Сохраняем измененные данные обратно в файл
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+    return jsonify({"success": True})
+
+
+
+
+
+
+
 
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
@@ -138,27 +203,6 @@ def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-def load_data(file_path):
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {
-            "users": [],
-            "admins": [],
-            "programmers": [],
-            "bot_token": "",
-            "owner_id": "",
-            "chat_id": "",
-            "total_score": 0.0,
-            "num_of_ratings": 0,
-            "sent_messages": {},
-            "muted_users": {}
-        }
-    except json.JSONDecodeError:
-        print("Помилка: некорректний формат JSON.")
-        return {}
-
 def load_sent_messages():
     with open(DATA_FILE, "r", encoding="utf-8") as file:
         data = json.load(file)
@@ -183,6 +227,7 @@ def load_muted_users_from_file(file_path=DATA_FILE):
                 mute_end = datetime.strptime(mute_end, "%H:%M; %d/%m/%Y")
             muted_users[user["id"]] = {
                 "first_name": user.get("first_name"),
+                "second_name": user.get("second_name"),
                 "username": user.get("username"),
                 "expiration": mute_end,
                 "reason": user.get("reason")
@@ -247,6 +292,7 @@ async def start(update: Update, context):
             "id": str(user.id),
             "username": user.username or "Не вказано",
             "first_name": user.first_name or "Не вказано",
+            "second_name": user.first_name or "Не вказано",
             "join_date": get_current_time_kiev(),
             "rating": 0,
             "mute": False,
@@ -265,7 +311,7 @@ async def start(update: Update, context):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     await update.message.reply_text(
-        "Привіт! Я ваш бот підтримки. Введіть команду /rate для оінки бота, /message для написания адміністраторам бота або /help для отримання інформації про команди.",
+        "78Привіт! Я ваш бот підтримки. Введіть команду /rate для оінки бота, /message для написания адміністраторам бота або /help для отримання інформації про команди.",
         reply_markup=reply_markup
     )
 
@@ -344,7 +390,7 @@ async def button_callback(update: Update, context):
     data["num_of_ratings"] = num_of_ratings
 
     with open(DATA_FILE, "w", encoding="utf-8") as json_file:
-        json.dump(data, json_file, ensure_ascii=False, indent=4,
+        json.dump(data, json_file, ensure_ascii=False, indent=5,
                   default=lambda obj: obj.strftime("%H:%M; %d/%m/%Y") if isinstance(obj, datetime) else None)
 
     average_rating = total_score / num_of_ratings if num_of_ratings > 0 else 0
@@ -501,19 +547,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 sent_messages = {}
 
                 for row in sheet_all_user.iter_rows(min_row=2, values_only=True):
-                    if len(row) < 8:
+                    if len(row) < 9:
                         continue
 
                     user_data = {
                         "id": str(row[0]),
                         "first_name": row[1],
-                        "username": row[2],
-                        "join_date": row[3].strftime("%H:%M; %d/%m/%Y") if isinstance(row[3], datetime) else str(
-                            row[3]),
-                        "rating": int(row[4]) if row[4] is not None else 0,
-                        "mute": bool(row[5]),
-                        "mute_end": row[6].strftime("%H:%M; %d/%m/%Y") if isinstance(row[6], datetime) else str(row[6]),
-                        "reason": row[7]
+                        "second_name": row[2],
+                        "username": row[3],
+                        "join_date": row[4].strftime("%H:%M; %d/%m/%Y") if isinstance(row[3], datetime) else str(row[4]),
+                        "rating": int(row[5]) if row[5] is not None else 0,
+                        "mute": bool(row[6]),
+                        "mute_end": row[7].strftime("%H:%M; %d/%m/%Y") if isinstance(row[6], datetime) else str(row[7]),
+                        "reason": row[8]
                     }
                     updated_users.append(user_data)
 
@@ -1024,7 +1070,7 @@ async def get_alllist(update: Update, context: CallbackContext) -> None:
         sent_messages_df = pd.DataFrame(data.get("sent_messages", {}).items(), columns=["MessageID", "UserID"])
         muted_users_df = pd.DataFrame(data.get("muted_users", {}).items(), columns=["UserID", "Details"])
 
-        excel_file = "Supp0rtsBot_all_users.xlsx"
+        excel_file = "Supp0rts2Bot_all_users.xlsx"
         with pd.ExcelWriter(excel_file) as writer:
             users_df.to_excel(writer, index=False, sheet_name="Users")
             muted_df.to_excel(writer, index=False, sheet_name="Muted")
@@ -1041,13 +1087,13 @@ async def get_alllist(update: Update, context: CallbackContext) -> None:
         yellow_fill = PatternFill(start_color="FFC300", end_color="FFC300", fill_type="solid")
         red_fill = PatternFill(start_color="b40a0a", end_color="b40a0a", fill_type="solid")
 
-        for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row, min_col=1, max_col=8):
-            username_cell = row[2]
+        for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row, min_col=1, max_col=9):
+            username_cell = row[3]
             mute_status = next((user['mute'] for user in data["users"] if user["username"] == username_cell.value), False)
 
             fill_color = red_fill if mute_status else yellow_fill
 
-            for cell in row[:8]:
+            for cell in row[:9]:
                 cell.fill = fill_color
 
         workbook.save(excel_file)
@@ -1095,7 +1141,7 @@ async def set_save_commands(application):
         BotCommand("set_alllist", "Записати Exel файл з користувачами"),
         BotCommand("help", "Показати доступні команди"),
     ]
-    await application.bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id=-1002358066044))
+    await application.bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id=-1002310142084))
 
 async def send_user_list():
     try:
@@ -1103,8 +1149,11 @@ async def send_user_list():
             data = json.load(file)
 
         all_users_df = pd.DataFrame(data["users"])
+        print(all_users_df)
         users_df = all_users_df[all_users_df["mute"] == False]
+        print(users_df)
         muted_df = all_users_df[all_users_df["mute"] == True]
+        print(muted_df)
 
         muted_df.loc[:, "mute_end"] = muted_df["mute_end"].apply(
             lambda x: datetime.strptime(x.replace(";", " "), "%H:%M %d/%m/%Y").strftime("%H:%M; %d/%m/%Y") if isinstance(x, str) else ""
@@ -1124,7 +1173,7 @@ async def send_user_list():
         sent_messages_df = pd.DataFrame(data.get("sent_messages", {}).items(), columns=["MessageID", "UserID"])
         muted_users_df = pd.DataFrame(data.get("muted_users", {}).items(), columns=["UserID", "Details"])
 
-        excel_file = "Supp0rtsBot_all_users.xlsx"
+        excel_file = "Supp0rts2Bot_all_users.xlsx"
         with pd.ExcelWriter(excel_file) as writer:
             users_df.to_excel(writer, index=False, sheet_name="Users")
             muted_df.to_excel(writer, index=False, sheet_name="Muted")
@@ -1160,7 +1209,7 @@ async def send_user_list():
         await bot.send_message(chat_id=-1002358066044, text=f"Ошибка при создании отчета: {e}")
 
 async def main():
-    application = Application.builder().token(BOTTOCEN).build()
+    application = Application.builder().token("7677888606:AAHMm3aSt84ZQkJ0wrlH4__St3lW36-TL8g").build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("rate", rate))
@@ -1189,6 +1238,7 @@ async def main():
     await set_creator_commands(application)
     await set_save_commands(application)
 
+
     scheduler = AsyncIOScheduler(timezone=pytz.timezone("Europe/Kyiv"))
     scheduler.add_job(send_user_list, "cron", hour=0, minute=0)
     scheduler.start()
@@ -1199,5 +1249,5 @@ async def main():
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.start()
-    update_data_json(config)
-    app.run(debug=True)
+    asyncio.run(main())
+
