@@ -138,6 +138,7 @@ def get_chat_messages():
         return jsonify({"error": str(e)}), 500
 
 
+
 @app.route('/')
 def index():
     data = load_data(DATA_FILE)
