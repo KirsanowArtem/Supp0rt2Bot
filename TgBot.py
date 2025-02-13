@@ -123,19 +123,25 @@ def save_chats(chats):
 def get_chat_messages():
     user_id = request.args.get('userId')
 
-    try:
-        with open(CHATS_FILE, 'r') as file:
-            chats = json.load(file)
+    # Загружаем данные из файла
+    with open(CHATS_FILE, 'r', encoding='utf-8') as file:
+        chats_data = json.load(file)
 
-        if str(user_id) in chats:
-            user_data = chats[str(user_id)]
-            print("Данные для пользователя:", json.dumps(user_data, indent=4))  # Выводим данные в консоль
-            return jsonify(user_data['messages'])
-        else:
-            return jsonify({"error": "User not found"}), 404
-    except Exception as e:
-        print("Ошибка при чтении данных:", e)
-        return jsonify({"error": str(e)}), 500
+    # Получаем сообщения для конкретного user_id
+    if str(user_id) in chats_data:
+        messages = chats_data[str(user_id)]['messages']
+    else:
+        messages = []
+
+    # Формируем ответ
+    formatted_messages = [
+        {"username": message["username"], "message": message["message"], "time_sent": message["time_sent"]}
+        for message in messages
+    ]
+
+    # Отправляем их в формате JSON
+    return jsonify({"messages": formatted_messages})
+
 
 
 
