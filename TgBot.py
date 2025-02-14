@@ -118,6 +118,19 @@ def save_chats(chats):
     with open(CHATS_FILE, "w", encoding="utf-8") as file:
         json.dump(chats, file, ensure_ascii=False, indent=4)
 
+# Сохранение сообщений в файл
+def save_message_to_chat(message_id, user_id, text):
+    chats = load_chats()
+    if message_id not in chats:
+        chats[message_id] = {
+            "user_id": user_id,
+            "messages": []
+        }
+    chats[message_id]["messages"].append({
+        "message_type": "text",
+        "text": text
+    })
+    save_chats(chats)
 
 @app.route('/get_chat_messages')
 def get_chat_messages():
@@ -213,6 +226,37 @@ def update_chat():
 
     return jsonify({"status": "ok"}), 200
 
+
+def send_message(chat_id, text):
+    url = f"https://api.telegram.org/bot{BOTTOCEN}/sendMessage"
+    data = {"chat_id": chat_id, "text": text}
+    response = requests.post(url, json=data)
+    return response.json()
+
+@app.route("/send_message", methods=["POST"])
+def send_message_route():
+    try:
+        # Получаем JSON-данные с именем пользователя и сообщением
+        data = request.get_json()
+
+        username = data.get("username")  # Имя пользователя
+        print(username)
+        message = data.get("message")    # Сообщение
+
+        if not username or not message:
+            return jsonify({"error": "Отсутствуют данные: username или message"}), 400
+
+        # Получаем ID пользователя
+        user_id = 1840233118#ПОЛУЧЕНИЕ АЙДИ ЧЕРЕЗ ИМЯ= app.get_users(username) НЕ РАБОТАЕТ
+        if not user_id:
+            return jsonify({"error": f"Не найден пользователь с именем {username}"}), 404
+
+        # Отправляем сообщение через Telegram-бота
+        result = send_message(user_id, message)
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error": f"Ошибка сервера: {str(e)}"}), 500
 
 
 
@@ -732,7 +776,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = await update.message.reply_text("Ваше повідомлення надіслано адміністраторам бота.")
             await asyncio.create_task(
                 auto_delete_message(context.bot, chat_id=reply.chat.id, message_id=reply.message_id, delay=5))
-
     else:
         if update.effective_user.id != context.bot.id:
             if update.message.reply_to_message:

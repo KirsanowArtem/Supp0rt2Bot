@@ -68,6 +68,48 @@
             color: gray;
         }
 
+            /* Контейнер для сообщений */
+        .chat-messages {
+            display: flex;
+            flex-direction: column;
+            gap: 10px; /* Добавляем отступ между сообщениями */
+            max-height: calc(100% - 120px); /* Оставляем место для ввода и заголовка */
+            overflow-y: auto; /* Прокрутка */
+        }
+
+        /* Индивидуальное сообщение */
+        .message {
+            background-color: #f0f0f0; /* Светлый фон для сообщений */
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+        }
+
+            /* Стиль для отображения даты */
+    .date-divider {
+        text-align: center;
+        margin: 10px 0;
+    }
+
+    .date {
+        background-color: green;
+        color: white;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 16px;
+    }
+
+    /* Для времени сообщения */
+    .message-time {
+        text-align: right;
+        color: gray;
+        font-size: 12px;
+    }
+
         .edit-name {
             cursor: pointer;
             font-size: 18px;
@@ -237,11 +279,12 @@
         <!-- Сообщения будут добавляться сюда -->
     </div>
 
-    <div class="input-container">
-        <input type="text" id="chat-input" placeholder="Введите сообщение...">
-        <button onclick="sendMessage()">Отправить</button>
-    </div>
+    <form method="POST" action="/send_message">
+        <textarea name="message" placeholder="Введите ваше сообщение"></textarea>
+        <button type="submit">Отправить</button>
+    </form>
 </div>
+
 
     <script>
         function editName(userId, currentName, event) {
@@ -292,6 +335,26 @@
 
 
 
+         function parseDate(dateString) {
+            const [time, date] = dateString.split(';'); // Разделяем на время и дату
+            const [day, month, year] = date.trim().split('/'); // Разделяем дату на день, месяц, год
+            const [hours, minutes] = time.trim().split(':'); // Разделяем время на часы и минуты
+
+            // Создаём новый объект Date
+            return new Date(year, month - 1, day, hours, minutes); // Месяц начинается с 0, поэтому month-1
+        }
+
+        function formatDate(dateString) {
+            const date = parseDate(dateString); // Преобразуем строку в объект Date
+            const options = { year: 'numeric', month: 'long', day: 'numeric' };
+            return date.toLocaleDateString('ru-RU', options);
+        }
+
+        function formatTime(dateString) {
+            const date = parseDate(dateString); // Преобразуем строку в объект Date
+            return date.toLocaleTimeString('ru-RU'); // Форматируем время
+        }
+
         function getChatMessages(userId) {
             return fetch('/get_chat_messages?userId=' + userId)
                 .then(response => response.json())
@@ -322,12 +385,24 @@
                 const chatMessagesContainer = document.getElementById('chat-messages');
                 chatMessagesContainer.innerHTML = ''; // Очищаем контейнер перед добавлением новых сообщений
 
+                let lastMessageDate = '';
                 messages.forEach(message => {
+                    const messageDate = formatDate(message.time_sent);
+
+                    // Если дата сообщения отличается от предыдущей, показываем её
+                    if (messageDate !== lastMessageDate) {
+                        const dateElement = document.createElement('div');
+                        dateElement.classList.add('message-date');
+                        dateElement.innerHTML = `<div style="background-color: green; color: white; text-align: center; padding: 5px; border-radius: 10px;">${messageDate}</div>`;
+                        chatMessagesContainer.appendChild(dateElement);
+                        lastMessageDate = messageDate;
+                    }
+
                     const messageElement = document.createElement('div');
                     messageElement.classList.add('message');
                     messageElement.innerHTML = `
-                        <strong>${message.username}</strong>: ${message.message} <br>
-                        <small>${message.time_sent}</small>
+                        <strong>${message.username}</strong>: ${message.message}
+                        <div style="text-align: right; font-size: 12px; color: gray;">${formatTime(message.time_sent)}</div>
                     `;
                     chatMessagesContainer.appendChild(messageElement);
                 });
@@ -351,6 +426,80 @@
                 closeChat();
             }
         });
+
+
+        document.addEventListener("DOMContentLoaded", function () {
+            const inputField = document.querySelector("textarea[name='message']");
+            const sendButton = document.querySelector("button[type='submit']");
+
+            if (!inputField || !sendButton) {
+                console.error("Ошибка: не найдены элементы ввода или кнопка отправки.");
+                return;
+            }
+
+            sendButton.addEventListener("click", function (event) {
+                event.preventDefault(); // Отключаем переход на другую страницу
+
+                const message = inputField.value.trim();
+                const username = document.querySelector("#chat-username").textContent.trim();
+
+                if (message === "" || username === "") {
+                    console.error("Ошибка: отсутствует сообщение или имя пользователя.");
+                    return;
+                }
+
+                // Отправка запроса с именем пользователя и сообщением
+                fetch("http://127.0.0.1:5000/send_message", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json" // Отправляем как JSON
+                    },
+                    body: JSON.stringify({
+                        username: username, // Имя пользователя
+                        message: message    // Текст сообщения
+                    })
+                })
+                .then(response => response.json())
+                .then(data => console.log("Ответ сервера:", data))
+                .catch(error => console.error("Ошибка:", error));
+
+                inputField.value = ""; // Очищаем поле ввода
+            });
+        });
+
+
+
+
+
+
+
+
+        function sendMessageToBot(username, message) {
+    fetch("https://api.telegram.org/bot<TOKEN>/sendMessage", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            chat_id: username, // ID пользователя
+            text: message
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.ok) {
+            console.log(`Сообщение отправлено пользователю ${username}`);
+        } else {
+            console.error("Ошибка при отправке:", data);
+        }
+    })
+    .catch(error => console.error("Ошибка запроса:", error));
+}
+
+        function sendMessageToUser(username, message) {
+            console.log(`Отправка сообщения "${message}" пользователю ${username}`);
+            // Здесь добавь код для отправки сообщения боту
+        }
 
     </script>
 </body>
