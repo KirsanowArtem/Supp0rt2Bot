@@ -2,7 +2,11 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+<<<<<<< HEAD
       <module fileurl="file://$PROJECT_DIR$/.idea/Supp0rt2Bot.iml" filepath="$PROJECT_DIR$/.idea/Supp0rt2Bot.iml" />
+=======
+      <module fileurl="file://$PROJECT_DIR$/.idea/Supp2pportt.iml" filepath="$PROJECT_DIR$/.idea/Supp2pportt.iml" />
+>>>>>>> 116c7b8 (Первый коммит)
     </modules>
   </component>
 </project>

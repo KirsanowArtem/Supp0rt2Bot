@@ -54,7 +54,10 @@ app.secret_key = "supersecretkey"  # Ключ для сессий
 DATA_FILE = "data.json"
 CHATS_FILE = "chats.json"
 
+<<<<<<< HEAD
 SITE_URL = "http://127.0.0.1:5000"
+=======
+>>>>>>> 116c7b8 (Первый коммит)
 
 
 # Хешируем пароль "12" через SHA256
@@ -233,11 +236,28 @@ def send_message(chat_id, text):
     response = requests.post(url, json=data)
     return response.json()
 
+<<<<<<< HEAD
+=======
+def get_user_id_by_username(username):
+    with open(CHATS_FILE, "r", encoding="utf-8") as file:
+        data = json.load(file)
+
+    for user in data.get("users", []):
+        if user.get("username") == username:
+            return user.get("id")
+
+    return None  # Если пользователя не нашли
+
+>>>>>>> 116c7b8 (Первый коммит)
 @app.route("/send_message", methods=["POST"])
 def send_message_route():
     try:
         # Получаем JSON-данные с именем пользователя и сообщением
         data = request.get_json()
+<<<<<<< HEAD
+=======
+        print(data)
+>>>>>>> 116c7b8 (Первый коммит)
 
         username = data.get("username")  # Имя пользователя
         print(username)
@@ -247,7 +267,12 @@ def send_message_route():
             return jsonify({"error": "Отсутствуют данные: username или message"}), 400
 
         # Получаем ID пользователя
+<<<<<<< HEAD
         user_id = 1840233118#ПОЛУЧЕНИЕ АЙДИ ЧЕРЕЗ ИМЯ= app.get_users(username) НЕ РАБОТАЕТ
+=======
+        #user_id = 1840233118#ПОЛУЧЕНИЕ АЙДИ ЧЕРЕЗ ИМЯ= app.get_users(username) НЕ РАБОТАЕТ
+        user_id = get_user_id_by_username(username)
+>>>>>>> 116c7b8 (Первый коммит)
         if not user_id:
             return jsonify({"error": f"Не найден пользователь с именем {username}"}), 404
 

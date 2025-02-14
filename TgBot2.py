@@ -37,7 +37,11 @@ global muted_users
 
 scheduler = BackgroundScheduler(timezone="Europe/Kiev")
 
+<<<<<<< HEAD
 DATA_FILE = "../Supp0rt2Bot/data.json"
+=======
+DATA_FILE = "../Supp2pportt/data.json"
+>>>>>>> 116c7b8 (Первый коммит)
 EXCEL_FILE = "user_data_export.xlsx"
 
 application = None
@@ -50,8 +54,13 @@ import json
 app = Flask(__name__)
 app.secret_key = "supersecretkey"  # Ключ для сессий
 
+<<<<<<< HEAD
 DATA_FILE = "data.json"
 CHATS_FILE = "chats.json"
+=======
+DATA_FILE = "../Supp2pportt/data.json"
+CHATS_FILE = "../Supp2pportt/chats.json"
+>>>>>>> 116c7b8 (Первый коммит)
 
 # Хешируем пароль "12" через SHA256
 VALID_USERNAME = "Skeleton"

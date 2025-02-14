@@ -441,12 +441,21 @@
                 event.preventDefault(); // Отключаем переход на другую страницу
 
                 const message = inputField.value.trim();
+<<<<<<< HEAD
                 const username = document.querySelector("#chat-username").textContent.trim();
+=======
+                const username = document.querySelector("#chat-name").textContent.trim();
+>>>>>>> 116c7b8 (Первый коммит)
 
                 if (message === "" || username === "") {
                     console.error("Ошибка: отсутствует сообщение или имя пользователя.");
                     return;
                 }
+<<<<<<< HEAD
+=======
+                console.log(`Сообщение ${message}`);
+                console.log(`Имя ${username}`);
+>>>>>>> 116c7b8 (Первый коммит)
 
                 // Отправка запроса с именем пользователя и сообщением
                 fetch("http://127.0.0.1:5000/send_message", {
@@ -475,6 +484,7 @@
 
 
         function sendMessageToBot(username, message) {
+<<<<<<< HEAD
     fetch("https://api.telegram.org/bot<TOKEN>/sendMessage", {
         method: "POST",
         headers: {
@@ -495,6 +505,29 @@
     })
     .catch(error => console.error("Ошибка запроса:", error));
 }
+=======
+            console.log(`Сообщение для ${username}`);
+            fetch("https://api.telegram.org/bot<TOKEN>/sendMessage", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    chat_id: username, // ID пользователя
+                    text: message
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.ok) {
+                    console.log(`Сообщение отправлено пользователю ${username}`);
+                } else {
+                    console.error("Ошибка при отправке:", data);
+                }
+            })
+            .catch(error => console.error("Ошибка запроса:", error));
+        }
+>>>>>>> 116c7b8 (Первый коммит)
 
         function sendMessageToUser(username, message) {
             console.log(`Отправка сообщения "${message}" пользователю ${username}`);
